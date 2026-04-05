@@ -14,14 +14,24 @@ import {
 import * as Animatable from "react-native-animatable";
 import Icon from "react-native-vector-icons/Ionicons";
 import CustomSplash from "./splash"; // Import your custom splash
+import { useAuth } from "../context/AuthContext";
+import { useEffect } from "react";
 
 export default function Index() {
   const [searchQuery, setSearchQuery] = useState("");
   const [loading, setLoading] = useState(false);
   const [isReady, setIsReady] = useState(false);
+  const { user, isLoading, logout } = useAuth();
+
+  // Handle Auth redirection
+  useEffect(() => {
+    if (isReady && !isLoading && !user) {
+      router.replace("/login" as any);
+    }
+  }, [isReady, isLoading, user]);
 
   // Show splash screen while loading
-  if (!isReady) {
+  if (!isReady || isLoading) {
     return <CustomSplash onFinish={() => setIsReady(true)} />;
   }
   const handleSearch = async (query?: string) => {
@@ -70,6 +80,14 @@ export default function Index() {
       end={{ x: 1, y: 1 }}
     >
       <StatusBar barStyle="light-content" />
+
+      {/* Logout button at Top Left */}
+      <TouchableOpacity 
+        onPress={logout}
+        style={styles.logoutButton}
+      >
+        <Icon name="log-out-outline" size={24} color="#fff" />
+      </TouchableOpacity>
 
       {/* Logo at Top */}
       <Animatable.View
@@ -165,6 +183,15 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     paddingHorizontal: 20,
+  },
+  logoutButton: {
+    position: "absolute",
+    top: 50,
+    left: 20,
+    zIndex: 10,
+    padding: 10,
+    backgroundColor: "rgba(255, 255, 255, 0.1)",
+    borderRadius: 20,
   },
   logoContainer: {
     alignItems: "center",
