@@ -33,12 +33,11 @@ export default function Login() {
     
     setLoading(true);
     try {
-      // For demo, just login with email
-      await login(email);
+      await login(email, password);
       router.replace("/");
-    } catch (error) {
+    } catch (error: any) {
       console.error("Login error:", error);
-      alert("Login failed.");
+      alert(error.message || "Login failed.");
     } finally {
       setLoading(false);
     }

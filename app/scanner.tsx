@@ -10,11 +10,13 @@ import {
     View,
 } from "react-native";
 import Icon from "react-native-vector-icons/Ionicons";
+import { useAuth } from "../context/AuthContext";
 
 export default function Scanner() {
     const [permission, requestPermission] = useCameraPermissions();
     const [scanned, setScanned] = useState(false);
     const [loading, setLoading] = useState(false);
+    const { generateSecurityHeaders } = useAuth();
 
     if (!permission) {
         // Camera permissions are still loading.
@@ -69,6 +71,7 @@ export default function Scanner() {
                     method: "POST",
                     headers: {
                         "Content-Type": "application/json",
+                        ...generateSecurityHeaders(),
                     },
                     body: JSON.stringify(foodItem),
                 }).catch((error) => console.error("Failed to save scanned food", error));

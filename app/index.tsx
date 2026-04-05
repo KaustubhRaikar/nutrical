@@ -21,7 +21,7 @@ export default function Index() {
   const [searchQuery, setSearchQuery] = useState("");
   const [loading, setLoading] = useState(false);
   const [isReady, setIsReady] = useState(false);
-  const { user, isLoading, logout } = useAuth();
+  const { user, isLoading, logout, recordSearch, generateSecurityHeaders } = useAuth();
 
   // Handle Auth redirection
   useEffect(() => {
@@ -41,10 +41,16 @@ export default function Index() {
       try {
         const response = await fetch(
           `https://nutritionapi.aarambhtech.in/?action=search&q=${encodeURIComponent(q)}`,
+          {
+            headers: generateSecurityHeaders()
+          }
         );
         const data = await response.json();
         Keyboard.dismiss();
         if (data.success) {
+          // Record search history
+          recordSearch(q);
+          
           router.push({
             pathname: "/info",
             params: { query: q, results: JSON.stringify(data.results) },

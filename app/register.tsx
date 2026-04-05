@@ -34,12 +34,11 @@ export default function Register() {
     
     setLoading(true);
     try {
-      // For demo, just register with email
-      await register(email);
+      await register(email, password);
       router.replace("/");
-    } catch (error) {
+    } catch (error: any) {
       console.error("Register error:", error);
-      alert("Registration failed.");
+      alert(error.message || "Registration failed.");
     } finally {
       setLoading(false);
     }
