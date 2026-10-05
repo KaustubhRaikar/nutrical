@@ -42,3 +42,18 @@ app-example
 /ios
 /android
 node_modules/
+
+# Markdown files
+*.md
+
+# Logs
+*.log
+logs/
+
+# Test files and evidence
+tests/
+test/
+coverage/
+*.test.*
+*.spec.*
+evidence/
