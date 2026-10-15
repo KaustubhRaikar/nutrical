@@ -31,6 +31,7 @@ yarn-error.*
 *.pem
 
 # local env files
+.env
 .env*.local
 
 # typescript
@@ -57,3 +58,8 @@ coverage/
 *.test.*
 *.spec.*
 evidence/
+
+# Backend & Admin isolation
+backend/
+admin/
+*.sql

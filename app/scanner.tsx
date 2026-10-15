@@ -1,6 +1,6 @@
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { router } from "expo-router";
-import { useState } from "react";
+import React, { useState } from "react";
 import {
     ActivityIndicator,
     Button,
@@ -10,13 +10,13 @@ import {
     View,
 } from "react-native";
 import Icon from "react-native-vector-icons/Ionicons";
-import { useAuth } from "../context/AuthContext";
+import { apiFetch } from "../lib/apiClient";
+import { fetchOpenFoodFactsProduct } from "../lib/openFoodFacts";
 
 export default function Scanner() {
     const [permission, requestPermission] = useCameraPermissions();
     const [scanned, setScanned] = useState(false);
     const [loading, setLoading] = useState(false);
-    const { generateSecurityHeaders } = useAuth();
 
     if (!permission) {
         // Camera permissions are still loading.
@@ -36,7 +36,6 @@ export default function Scanner() {
     }
 
     const handleBarCodeScanned = async ({
-        type,
         data,
     }: {
         type: string;
@@ -46,37 +45,18 @@ export default function Scanner() {
         setLoading(true);
 
         try {
-            const response = await fetch(
-                `https://world.openfoodfacts.net/api/v2/product/${encodeURIComponent(data)}`
-            );
-            const resultData = await response.json();
+            const foodItem = await fetchOpenFoodFactsProduct(data, 8000);
 
-            if (resultData.status === 1 && resultData.product) {
-                const product = resultData.product;
-                const nutriments = product.nutriments || {};
+            if (foodItem) {
+                // Non-blocking sync to backend; failures must not affect user flow
+                apiFetch('add_food', {
+                    method: 'POST',
+                    body: foodItem,
+                }).catch((error) =>
+                    console.error("Failed to save scanned food asynchronously:", error)
+                );
 
-                const foodItem = {
-                    name: product.product_name || "Unknown Product",
-                    serving_size: "100g",
-                    calories: nutriments["energy-kcal_100g"] || nutriments["energy-kcal"] || 0,
-                    protein: nutriments.proteins_100g || nutriments.proteins || 0,
-                    carbs: nutriments.carbohydrates_100g || nutriments.carbohydrates || 0,
-                    fat: nutriments.fat_100g || nutriments.fat || 0,
-                    fiber: nutriments.fiber_100g || nutriments.fiber || 0,
-                    category: "Scanned",
-                };
-
-                // Save to database asynchronously
-                fetch("https://nutritionapi.aarambhtech.in/?action=add_food", {
-                    method: "POST",
-                    headers: {
-                        "Content-Type": "application/json",
-                        ...generateSecurityHeaders(),
-                    },
-                    body: JSON.stringify(foodItem),
-                }).catch((error) => console.error("Failed to save scanned food", error));
-
-                // Pop the scanner screen and go to info
+                // Pop the scanner screen and navigate to barcode_info
                 router.replace({
                     pathname: "/barcode_info",
                     params: { query: data, results: JSON.stringify([foodItem]) },
@@ -86,7 +66,8 @@ export default function Scanner() {
                 setScanned(false);
             }
         } catch (error) {
-            alert("Error fetching data");
+            console.error("Barcode scan lookup error:", error);
+            alert("Error fetching product data. Please check connection and try again.");
             setScanned(false);
         } finally {
             setLoading(false);

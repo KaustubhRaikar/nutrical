@@ -7,8 +7,13 @@ import { Animated, Easing, Image, StyleSheet } from "react-native";
 SplashScreen.preventAutoHideAsync();
 
 export default function CustomSplash({ onFinish }: { onFinish: () => void }) {
-  const fadeAnim = new Animated.Value(0);
-  const scaleAnim = new Animated.Value(0.3);
+  const fadeAnim = React.useRef(new Animated.Value(0)).current;
+  const scaleAnim = React.useRef(new Animated.Value(0.3)).current;
+  const onFinishRef = React.useRef(onFinish);
+
+  useEffect(() => {
+    onFinishRef.current = onFinish;
+  }, [onFinish]);
 
   useEffect(() => {
     // Animate logo
@@ -30,11 +35,11 @@ export default function CustomSplash({ onFinish }: { onFinish: () => void }) {
     // Hide splash screen after 2 seconds and call onFinish
     const timer = setTimeout(async () => {
       await SplashScreen.hideAsync();
-      if (onFinish) onFinish();
+      if (onFinishRef.current) onFinishRef.current();
     }, 2000);
 
     return () => clearTimeout(timer);
-  }, []);
+  }, [fadeAnim, scaleAnim]);
 
   return (
     <LinearGradient

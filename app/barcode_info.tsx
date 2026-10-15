@@ -1,9 +1,7 @@
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import { LinearGradient } from "expo-linear-gradient";
 import { router, useLocalSearchParams } from "expo-router";
-import React from "react";
+import React, { useState } from "react";
 import {
-  Alert,
   ScrollView,
   StatusBar,
   StyleSheet,
@@ -12,32 +10,52 @@ import {
   View,
 } from "react-native";
 import Icon from "react-native-vector-icons/Ionicons";
+import Toast from "../components/Toast";
+import { add } from "../lib/foodLog";
+
+interface BarcodeProductItem {
+  name: string;
+  serving_size: string;
+  calories: number | string;
+  protein: number | string;
+  carbs: number | string;
+  fat: number | string;
+  fiber: number | string;
+  category?: string;
+  barcode?: string;
+}
 
 export default function BarcodeInfo() {
-  const { query, results } = useLocalSearchParams();
-  const foods =
+  const { results } = useLocalSearchParams();
+  const [toastVisible, setToastVisible] = useState(false);
+  const [toastMessage, setToastMessage] = useState("Added to today's log");
+
+  const foods: BarcodeProductItem[] =
     results && typeof results === "string" ? JSON.parse(results) : [];
 
   const goBack = () => {
     router.back();
   };
 
-  const saveFoodLocally = async (food: any) => {
+  const saveFoodLocally = async (food: BarcodeProductItem) => {
     try {
-      const existingData = await AsyncStorage.getItem("@saved_foods");
-      let savedFoods = existingData ? JSON.parse(existingData) : [];
-
-      const newFood = {
-        ...food,
+      await add({
+        name: food.name,
+        serving_size: food.serving_size || "100g",
+        calories: Number(food.calories) || 0,
+        protein: Number(food.protein) || 0,
+        carbs: Number(food.carbs) || 0,
+        fat: Number(food.fat) || 0,
+        fiber: Number(food.fiber) || 0,
         timestamp: new Date().toISOString(),
-      };
+        category: food.category || "Scanned",
+        barcode: food.barcode,
+      });
 
-      savedFoods.push(newFood);
-      await AsyncStorage.setItem("@saved_foods", JSON.stringify(savedFoods));
-      Alert.alert("Saved!", `${food.name} has been added to your log.`);
+      setToastMessage("Added to today's log");
+      setToastVisible(true);
     } catch (e) {
       console.error("Failed to save food locally", e);
-      Alert.alert("Error", "Could not save food item.");
     }
   };
 
@@ -59,7 +77,7 @@ export default function BarcodeInfo() {
 
       <ScrollView style={styles.content}>
         {foods.length > 0 ? (
-          foods.map((food: any, index: number) => (
+          foods.map((food, index) => (
             <View key={index} style={styles.foodCard}>
               <TouchableOpacity
                 style={styles.saveButton}
@@ -93,7 +111,7 @@ export default function BarcodeInfo() {
                 </View>
               </View>
 
-              {food.fiber > 0 && (
+              {Number(food.fiber) > 0 && (
                 <Text style={styles.fiberText}>Fiber: {food.fiber}g</Text>
               )}
             </View>
@@ -105,9 +123,20 @@ export default function BarcodeInfo() {
           </View>
         )}
       </ScrollView>
+
+      <Toast
+        visible={toastVisible}
+        message={toastMessage}
+        actionText="View log"
+        onAction={() => {
+          setToastVisible(false);
+          router.push("/history");
+        }}
+        onDismiss={() => setToastVisible(false)}
+      />
     </LinearGradient>
   );
-};
+}
 
 const styles = StyleSheet.create({
   container: {
@@ -223,4 +252,3 @@ const styles = StyleSheet.create({
     elevation: 5,
   },
 });
-

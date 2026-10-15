@@ -116,7 +116,7 @@ export default function Login() {
                   onPress={() => router.push("/register" as any)}
                 >
                   <Text style={styles.registerText}>
-                    Don't have an account? <Text style={styles.registerBold}>Sign Up</Text>
+                    Don&apos;t have an account? <Text style={styles.registerBold}>Sign Up</Text>
                   </Text>
                 </TouchableOpacity>
               </Animatable.View>

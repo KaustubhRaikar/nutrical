@@ -1,18 +1,10 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
 import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
-import { Platform, AppState } from 'react-native';
-import Constants from 'expo-constants';
-import CryptoJS from 'crypto-js';
+import { AppState } from 'react-native';
+import { apiFetch, setApiSession, setOnUnauthorized, AuthSession } from '../lib/apiClient';
+import { getDeviceId, getDeviceName } from '../lib/deviceIdentity';
 
-const API_BASE_URL = 'https://nutritionapi.aarambhtech.in/';
-const API_SECRET = 'nutrical_secret_2c0m6'; 
-
-type User = {
-  id: string;
-  email: string;
-  token?: string;
-} | null;
+export type User = AuthSession | null;
 
 interface AuthContextType {
   user: User;
@@ -21,7 +13,15 @@ interface AuthContextType {
   register: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   recordSearch: (query: string) => Promise<void>;
-  generateSecurityHeaders: () => Record<string, string>;
+}
+
+interface LoginApiResponse {
+  success: boolean;
+  id: number | string;
+  email: string;
+  session_token: string;
+  signing_key: string;
+  message?: string;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -32,32 +32,39 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const startTime = useRef<number>(Date.now());
   const appState = useRef(AppState.currentState);
 
-  const generateSecurityHeaders = () => {
-    const timestamp = Math.floor(Date.now() / 1000).toString();
-    const signature = CryptoJS.HmacSHA256(timestamp, API_SECRET).toString();
-    
-    const headers: Record<string, string> = {
-      'X-TIMESTAMP': timestamp,
-      'X-SIGNATURE': signature,
-    };
-
-    if (user && user.token) {
-      headers['X-SESSION-TOKEN'] = user.token;
+  const purgeSessionLocally = async () => {
+    try {
+      await SecureStore.deleteItemAsync('user_session');
+    } catch (e) {
+      console.error('Error clearing secure user_session:', e);
     }
-
-    return headers;
+    setApiSession(null);
+    setUser(null);
   };
 
   useEffect(() => {
+    // 1. Hook up central 401 unauthorized / invalid session listener
+    setOnUnauthorized(async () => {
+      await purgeSessionLocally();
+    });
+
+    // 2. Load stored session and validate signing_key presence
     const loadStoredUser = async () => {
       try {
-        // Use SecureStore for the whole session in production
         const storedUser = await SecureStore.getItemAsync('user_session');
         if (storedUser) {
-          setUser(JSON.parse(storedUser));
+          const parsed = JSON.parse(storedUser);
+          // If stored session lacks signing_key (legacy v1 session), purge it
+          if (!parsed || !parsed.signing_key || !parsed.token) {
+            await purgeSessionLocally();
+          } else {
+            setUser(parsed);
+            setApiSession(parsed);
+          }
         }
       } catch (error) {
-        console.error('Failed to load user session:', error);
+        console.error('Failed to load user session from SecureStore:', error);
+        await purgeSessionLocally();
       } finally {
         setIsLoading(false);
       }
@@ -65,6 +72,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     loadStoredUser();
 
+    // 3. Monitor active/background state transitions for usage duration telemetry
     const subscription = AppState.addEventListener('change', nextAppState => {
       if (appState.current.match(/active/) && nextAppState.match(/inactive|background/)) {
         recordUsage();
@@ -78,11 +86,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       subscription.remove();
       recordUsage();
     };
-  }, [user]);
+  }, []);
 
   const recordUsage = async () => {
     if (!user || !user.token) return;
-    
+
     const now = Date.now();
     const duration = Math.floor((now - startTime.current) / 1000);
     const startIso = new Date(startTime.current).toISOString().slice(0, 19).replace('T', ' ');
@@ -92,76 +100,64 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (duration < 5) return;
 
     try {
-      const response = await fetch(`${API_BASE_URL}?action=record_usage`, {
+      await apiFetch('record_usage', {
         method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          ...generateSecurityHeaders()
-        },
-        body: JSON.stringify({
+        body: {
           user_id: user.id,
           start_time: startIso,
           end_time: endIso,
-          duration: duration,
-          date: date
-        })
+          duration,
+          date,
+        },
       });
-      const data = await response.json();
-      if (data.message === 'Invalid session') {
-        logout(); // Force logout if session is invalid
-      }
     } catch (e) {
-      console.error('Usage log error:', e);
+      console.error('Usage log telemetry error:', e);
     }
   };
 
   const login = async (email: string, password: string) => {
-    const deviceName = Platform.OS + ' ' + (Constants.deviceName || 'Device');
-    const deviceId = Constants.installationId || 'unknown';
+    const deviceId = await getDeviceId();
+    const deviceName = getDeviceName();
 
     try {
-      const response = await fetch(`${API_BASE_URL}?action=login`, {
+      const data = await apiFetch<LoginApiResponse>('login', {
         method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          ...generateSecurityHeaders()
+        body: {
+          email,
+          password,
+          device_name: deviceName,
+          device_id: deviceId,
         },
-        body: JSON.stringify({ email, password, device_name: deviceName, device_id: deviceId })
       });
-      
-      const data = await response.json();
-      if (data.success) {
-        const loggedUser = { id: data.id.toString(), email: data.email, token: data.session_token };
-        // Save SECURELY
+
+      if (data && data.session_token && data.signing_key) {
+        const loggedUser: User = {
+          id: data.id.toString(),
+          email: data.email,
+          token: data.session_token,
+          signing_key: data.signing_key,
+        };
+
         await SecureStore.setItemAsync('user_session', JSON.stringify(loggedUser));
+        setApiSession(loggedUser);
         setUser(loggedUser);
         startTime.current = Date.now();
       } else {
-        throw new Error(data.message || 'Login failed');
+        throw new Error(data?.message || 'Login failed');
       }
-    } catch (error: any) {
+    } catch (error) {
       throw error;
     }
   };
 
   const register = async (email: string, password: string) => {
     try {
-      const response = await fetch(`${API_BASE_URL}?action=register`, {
+      await apiFetch('register', {
         method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          ...generateSecurityHeaders()
-        },
-        body: JSON.stringify({ email, password })
+        body: { email, password },
       });
-      
-      const data = await response.json();
-      if (data.success) {
-        await login(email, password);
-      } else {
-        throw new Error(data.message || 'Registration failed');
-      }
-    } catch (error: any) {
+      await login(email, password);
+    } catch (error) {
       throw error;
     }
   };
@@ -169,31 +165,33 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const recordSearch = async (query: string) => {
     if (!user || !user.token) return;
     try {
-      const response = await fetch(`${API_BASE_URL}?action=record_search`, {
+      await apiFetch('record_search', {
         method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          ...generateSecurityHeaders()
-        },
-        body: JSON.stringify({ user_id: user.id, q: query })
+        body: { user_id: user.id, q: query },
       });
-      const data = await response.json();
-      if (data.message === 'Invalid session') {
-        logout();
-      }
     } catch (e) {
-      console.error('Search log error:', e);
+      console.error('Search telemetry error:', e);
     }
   };
 
   const logout = async () => {
-    await recordUsage();
-    await SecureStore.deleteItemAsync('user_session');
-    setUser(null);
+    try {
+      await recordUsage();
+    } catch {
+      // Best-effort
+    }
+
+    try {
+      await apiFetch('logout', { method: 'POST' });
+    } catch {
+      // Best-effort remote session revocation
+    }
+
+    await purgeSessionLocally();
   };
 
   return (
-    <AuthContext.Provider value={{ user, isLoading, login, register, logout, recordSearch, generateSecurityHeaders }}>
+    <AuthContext.Provider value={{ user, isLoading, login, register, logout, recordSearch }}>
       {children}
     </AuthContext.Provider>
   );
