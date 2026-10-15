@@ -1,3 +1,4 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
 import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { AppState } from 'react-native';
@@ -9,16 +10,19 @@ export type User = AuthSession | null;
 interface AuthContextType {
   user: User;
   isLoading: boolean;
+  isPremium: boolean;
   login: (email: string, password: string) => Promise<void>;
   register: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   recordSearch: (query: string) => Promise<void>;
+  togglePremiumForTesting: () => Promise<void>;
 }
 
 interface LoginApiResponse {
   success: boolean;
   id: number | string;
   email: string;
+  is_premium?: boolean;
   session_token: string;
   signing_key: string;
   message?: string;
@@ -29,6 +33,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [devPremiumOverride, setDevPremiumOverride] = useState<boolean | null>(null);
   const startTime = useRef<number>(Date.now());
   const appState = useRef(AppState.currentState);
 
@@ -51,6 +56,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // 2. Load stored session and validate signing_key presence
     const loadStoredUser = async () => {
       try {
+        const storedOverride = await AsyncStorage.getItem('@dev_premium_override');
+        if (storedOverride !== null) {
+          try {
+            setDevPremiumOverride(JSON.parse(storedOverride));
+          } catch {
+            // ignore parse error
+          }
+        }
+
         const storedUser = await SecureStore.getItemAsync('user_session');
         if (storedUser) {
           const parsed = JSON.parse(storedUser);
@@ -136,6 +150,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           email: data.email,
           token: data.session_token,
           signing_key: data.signing_key,
+          is_premium: !!data.is_premium,
         };
 
         await SecureStore.setItemAsync('user_session', JSON.stringify(loggedUser));
@@ -190,8 +205,27 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     await purgeSessionLocally();
   };
 
+  const isPremium = devPremiumOverride !== null ? devPremiumOverride : !!user?.is_premium;
+
+  const togglePremiumForTesting = async () => {
+    const nextVal = !isPremium;
+    setDevPremiumOverride(nextVal);
+    await AsyncStorage.setItem('@dev_premium_override', JSON.stringify(nextVal));
+  };
+
   return (
-    <AuthContext.Provider value={{ user, isLoading, login, register, logout, recordSearch }}>
+    <AuthContext.Provider
+      value={{
+        user,
+        isLoading,
+        isPremium,
+        login,
+        register,
+        logout,
+        recordSearch,
+        togglePremiumForTesting,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );

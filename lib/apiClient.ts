@@ -5,6 +5,7 @@ export interface AuthSession {
   email: string;
   token: string;
   signing_key: string;
+  is_premium?: boolean;
 }
 
 export class ApiError extends Error {

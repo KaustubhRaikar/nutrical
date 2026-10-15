@@ -201,6 +201,22 @@ export async function saveTargets(newTargets: Partial<DailyTargets>): Promise<Da
  * Does not re-trigger dirty listener.
  */
 export async function saveTargetsFromRemote(remoteTargets: DailyTargets): Promise<boolean> {
+  const storage = getStorage();
+  const raw = await storage.getItem(DAILY_TARGETS_KEY);
+
+  // If local targets have never been configured, remote targets always apply
+  if (!raw) {
+    const merged: DailyTargets = {
+      calories: Math.max(800, Math.min(6000, Number(remoteTargets.calories) || DEFAULT_DAILY_TARGETS.calories)),
+      protein: Math.max(0, Math.min(1000, Number(remoteTargets.protein) || DEFAULT_DAILY_TARGETS.protein)),
+      carbs: Math.max(0, Math.min(1000, Number(remoteTargets.carbs) || DEFAULT_DAILY_TARGETS.carbs)),
+      fat: Math.max(0, Math.min(1000, Number(remoteTargets.fat) || DEFAULT_DAILY_TARGETS.fat)),
+      updated_at: remoteTargets.updated_at,
+    };
+    await storage.setItem(DAILY_TARGETS_KEY, JSON.stringify(merged));
+    return true;
+  }
+
   const existing = await loadTargets();
   const remoteTime = new Date(remoteTargets.updated_at).getTime();
   const localTime = new Date(existing.updated_at).getTime();
@@ -213,7 +229,6 @@ export async function saveTargetsFromRemote(remoteTargets: DailyTargets): Promis
       fat: Math.max(0, Math.min(1000, Number(remoteTargets.fat) || DEFAULT_DAILY_TARGETS.fat)),
       updated_at: remoteTargets.updated_at,
     };
-    const storage = getStorage();
     await storage.setItem(DAILY_TARGETS_KEY, JSON.stringify(merged));
     return true;
   }
